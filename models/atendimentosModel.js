@@ -1,73 +1,104 @@
-const conexao = require('../infraestrutura/conexao');
+const conexao = require('../infraestrutura/database/conexao');
 const moment = require('moment');
+const { default: axios } = require('axios');
+const atendimentoRepositorio = require('../repositorios/atendimentoRepositorio');
 
 class AtendimentoModel{
-    
-    adicionaAtendimento(atendimento, res){
-        const dataCriacao = moment().format('YYYY-MM-DD HH:MM:SS');
-        const data = moment(atendimento.data,'DD/MM/YYYY').format('YYYY-MM-DD HH:MM:SS');
+    constructor() {
 
-        const dataEhValida = moment(data).isSameOrAfter(dataCriacao);
-        const clienteEhValido = atendimento.cliente.length >= 3;
+        this.dataEhValida = ({data, dataCriacao})=>{
+            
+            moment(data).isSameOrAfter(dataCriacao);
+        } 
 
-        const validacoes = [
+        this.clienteEhValido = (tamanhoNome) => {
+            
+            tamanhoNome >= 3;
+        }
+        this.validacoes = [
             {
                 nome:'data',
-                valido:dataEhValida,
+                validator: this.dataEhValida,
                 mensagem:'Data deve ser Maior ou Igual a Data Atual'
             },
             {
                 nome:'cliente',
-                valido:clienteEhValido,
+                validator: this.clienteEhValido,
                 mensagem:'Cliente deve possuir pelo menos 3 caracteres'
             }
         ]
+        this.valida = (parametros) =>{
+            this.validacoes.filter(campo =>{
 
-        const erros = validacoes.filter(campo => !campo.valido);
+                const { nome } = campo;
+                const parametro = parametros[nome];
+
+                return !campo.validator(parametro);
+            })
+        }
+    }
+    adicionaAtendimento(atendimento){
+        const dataCriacao = moment().format('YYYY-MM-DD HH:MM:SS');
+        const data = moment(atendimento.data,'DD/MM/YYYY').format('YYYY-MM-DD HH:MM:SS');
+
+        const parametros = {
+            data: {
+                data,
+                dataCriacao
+            },
+            cliente: {
+                tamanhoNome: atendimento.cliente.length
+            }
+        }
+        const erros = this.valida(parametros)
         const existeErro = erros.length;
 
         if(existeErro){
-            res.status(400).json(erros);
+            return new Promise((resolve, reject) => reject(erros))
         }
         else{
 
             const atendimentoDatado = {...atendimento, dataCriacao, data}
-            const sql = 'INSERT INTO Atendimentos SET ?'
     
-            conexao.query(sql, atendimentoDatado,(erro, resultados)=>{
-                if(erro){
-                    res.status(400).json(erro); 
-                }
-                else{
-                    res.status(201).json(resultados)
-                }
-            })
+            return atendimentoRepositorio.adiciona(atendimentoDatado)
+                .then((resultados)=>{
+                    const id = resultados.insertId
+                    return {...atendimento, id }
+                })
         }
     }
 
-    listarAtendimentos(res){
-        const sql = 'SELECT * FROM Atendimentos'
+    listarAtendimentos(){
 
-        conexao.query(sql, (erro, resultados)=>{
-            if(erro){
-                res.status(400).json(erro);
-            }
-            else{
-                res.status(200).json(resultados);
-            }
-        })
+        return atendimentoRepositorio.listar()
     }
 
     buscarUmAtendimento(id, res){
+
+        throw new Error (`
+        #####################################  ERRO  #####################################
+        #                                                                                #
+        # Antes de fazer essa requisicao, abra um novo terminal e rode a api de Serviços #
+        #   1- cd servicos                                                               #
+        #   2- npm install                                                               #
+        #   3- node clientes.js                                                          #
+        #                                                                                #
+        # Após isso pode apagar essa mensagem de erro                                    #
+        #                                                                                #
+        ##################################################################################
+        `)
         const sql = `SELECT * FROM Atendimentos WHERE id = ${id}`
 
-        conexao.query(sql, (erro, resultados) =>{
+        conexao.query(sql, async (erro, resultados) =>{
             const atendimento = resultados[0];
+            const cpf = atendimento.cliente;
             if(erro){
                 res.status(400).json(erro);
             }
             else{
-                res.status(200).json(atendimento)
+                const { data } = await axios.get(`http://localhost:8082/${cpf}`);
+                atendimento.cliente = data;
+                res.status(200).json(atendimento);
             }
         })
     }
